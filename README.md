@@ -88,8 +88,9 @@ python nasdaq_etf_tool.py --only-download
 | A股ETF IOPV估值 | 东方财富 | akshare `fund_etf_spot_em` | 用于补充净值接口尚未更新的最新交易日 |
 | 安硕2834净值 | MoneyDJ | HTTP 直接请求 | 港币单位净值 |
 | 安硕2834场内价格 | 新浪财经 | akshare `stock_hk_daily` | 港股日线行情，含成交额（精确VWAP） |
-| 纳指100指数 NDX/XNDX | Nasdaq 官方 | indexes.nasdaqomx.com | Excel 导出 |
-| USDCNY / HKDCNY 汇率 | Yahoo Finance | Chart API | 日频收盘汇率 |
+| 纳指100指数 NDX | 新浪财经 | akshare `index_us_stock_sina` | 默认使用，价格指数（不含股息） |
+| 纳指100指数 XNDX | Nasdaq 官方 | indexes.nasdaqomx.com | 仅 `--total-return` 时使用，全收益指数 |
+| USDCNY / HKDCNY 汇率 | 中国银行 | akshare `currency_boc_sina` | 中行牌价历史数据 |
 
 ## 输出文件
 
@@ -147,7 +148,7 @@ REF_FUNDS = [("安硕", "02834", "2834.HK")]
 
 - A 股基金是主对比对象，任一下载失败即中止，避免混用旧数据。
 - 香港安硕是参考项，下载失败只打印警告，不影响主报告生成。
-- Nasdaq 指数下载自动重试最多 5 次，每次间隔递增。
+- Nasdaq XNDX 指数下载自动重试最多 5 次，每次间隔递增（仅 `--total-return` 时需要）。
 - IOPV 获取失败静默跳过，不报错。
 
 ## 依赖

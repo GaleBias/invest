@@ -96,8 +96,8 @@ def build_report(use_total_return: bool, premium_periods=None, nav_periods=None)
         idx_note = "XNDX 为全收益指数，含股息再投资，数据来自 Nasdaq 官方（indexes.nasdaqomx.com）。"
     else:
         idx_label = "NDX"
-        idx_source = "Nasdaq官方（价格指数，不含股息，美元）"
-        idx_note = "NDX 为价格指数，不含股息，与各基金合同声明的跟踪标的一致，数据来自 Nasdaq 官方。"
+        idx_source = "新浪财经（价格指数，不含股息，美元）"
+        idx_note = "NDX 为价格指数，不含股息，与各基金合同声明的跟踪标的一致，数据来自新浪财经（akshare）。"
 
     lines = ["# 纳斯达克100指数基金 跟踪误差对比报告\n"]
     _append_overview(
@@ -132,9 +132,9 @@ def _append_overview(
     lines.append("| A股ETF IOPV | 东方财富（akshare） | fund_etf_spot_em，用于补充净值接口尚未更新的交易日 |")
     lines.append("| 安硕2834净值 | MoneyDJ | 港币单位净值 |")
     lines.append("| 安硕2834场内价格 | 新浪财经（akshare） | stock_hk_daily，港股日线行情 |")
-    lines.append(f"| 纳指100指数 {idx_label} | Nasdaq官方 | {idx_source} |")
-    lines.append("| USDCNY汇率 | Yahoo Finance | 日频收盘汇率 |")
-    lines.append("| HKDCNY汇率 | Yahoo Finance | 日频收盘汇率 |")
+    lines.append(f"| 纳指100指数 {idx_label} | {idx_source} |")
+    lines.append("| USDCNY汇率 | 中国银行（akshare） | 中行牌价历史数据 |")
+    lines.append("| HKDCNY汇率 | 中国银行（akshare） | 中行牌价历史数据 |")
     lines.append("")
     lines.append(f"**统计区间：{start_date.date()} ~ {end_date.date()}**（各基金共同交易日，共 {observation_count} 个）\n")
     lines.append(

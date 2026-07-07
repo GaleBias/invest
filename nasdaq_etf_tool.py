@@ -51,7 +51,7 @@ def main():
     if args.total_return is not None:
         use_total_return = args.total_return
 
-    index_name = "全收益指数 XNDX（Nasdaq 官方）" if use_total_return else "价格指数 NDX（Nasdaq 官方）"
+    index_name = "全收益指数 XNDX（Nasdaq 官方）" if use_total_return else "价格指数 NDX（新浪财经）"
     print(f"[指数口径] {index_name}")
 
     if not args.skip_download:
