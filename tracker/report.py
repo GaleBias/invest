@@ -4,7 +4,7 @@
 import numpy as np
 import pandas as pd
 
-from tracker.config import FUNDS, REPORT_FILE, fund_file
+from tracker.config import FUNDS, REF_FUNDS, REPORT_FILE, fund_file
 from tracker.data import load_a_share_funds, load_hkfx, load_index_components, load_market_data, load_reference_funds, load_series
 from tracker.stats import calendar_year_returns, cumulative_return, dca_avg_premium, dca_premium_std, endpoint, monthly_returns, tracking_error
 
@@ -290,6 +290,15 @@ def _append_premium_section(lines, periods=None, end_date=None):
         if mdf is None or len(mdf) == 0:
             continue
         fund_data.append({"name": display, "code": code, "mdf": mdf})
+
+    for company, code, _etfid in REF_FUNDS:
+        try:
+            mdf = load_market_data(fund_file(company, code))
+        except Exception:
+            continue
+        if mdf is None or len(mdf) == 0:
+            continue
+        fund_data.append({"name": company, "code": code, "mdf": mdf})
 
     if not fund_data:
         return
