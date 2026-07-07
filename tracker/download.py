@@ -7,7 +7,6 @@ A 股基金是主比较对象，任一下载失败即停止，避免后续报告
 """
 
 import io
-import json
 import ssl
 import urllib.request
 
@@ -200,14 +199,6 @@ def fetch_fund(company: str, code: str, iopv_data: dict = None):
     print(f"  [基金] {out:<22} {len(df):>5}行  {df['净值日期'].min()} ~ {df['净值日期'].max()}")
 
 
-def _yahoo(symbol: str) -> pd.DataFrame:
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1=0&period2=9999999999&interval=1d"
-    result = json.loads(_get(url))["chart"]["result"][0]
-    ts = result["timestamp"]
-    close = result["indicators"]["quote"][0]["close"]
-    return pd.DataFrame({"ts": ts, "close": close}).dropna(subset=["close"])
-
-
 def _nasdaq_index(symbol: str, start_date: str) -> pd.DataFrame:
     """下载 Nasdaq 官方指数历史数据。"""
     end = (pd.Timestamp.today() + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
@@ -225,30 +216,52 @@ def _nasdaq_index(symbol: str, start_date: str) -> pd.DataFrame:
 
 
 def fetch_index(use_total_return: bool = DEFAULT_USE_TOTAL_RETURN):
-    """按配置下载 NDX 或 XNDX。"""
+    """按配置下载 NDX 或 XNDX。
+
+    NDX：通过 akshare index_us_stock_sina 获取（新浪财经）。
+    XNDX：Nasdaq 官方独有，仍从 indexes.nasdaqomx.com 下载。
+    """
+    import akshare as ak
+
     ensure_data_dir()
     if use_total_return:
         df = _nasdaq_index("XNDX", "1999-03-04")
         _write_ref(df, "XNDX", "纳斯达克100指数(全收益,含股息,美元)", INDEX_FILE_XNDX)
     else:
-        df = _nasdaq_index("NDX", "1985-01-01")
+        mdf = ak.index_us_stock_sina(symbol='.NDX')
+        df = pd.DataFrame({
+            "净值日期": pd.to_datetime(mdf["date"]).dt.strftime("%Y-%m-%d"),
+            "close": mdf["close"].values,
+        })
         _write_ref(df, "NDX", "纳斯达克100指数(价格指数,美元)", INDEX_FILE_NDX)
 
 
 def fetch_fx():
-    """下载 USDCNY，用于把美元指数换算为人民币口径。"""
+    """下载 USDCNY，通过 akshare 中行牌价获取。"""
+    import akshare as ak
+
     ensure_data_dir()
-    df = _yahoo("USDCNY=X")
-    df["净值日期"] = pd.to_datetime(df["ts"], unit="s", utc=True).dt.strftime("%Y-%m-%d")
-    _write_ref(df, "USDCNY", "美元兑人民币汇率", FX_FILE)
+    df = ak.currency_boc_sina(symbol='美元', start_date='20100101', end_date=pd.Timestamp.today().strftime('%Y%m%d'))
+    # 中行汇买价单位：100美元 = X人民币，需除100转换为 1美元 = X人民币
+    out = pd.DataFrame({
+        "净值日期": pd.to_datetime(df["日期"]).dt.strftime("%Y-%m-%d"),
+        "close": pd.to_numeric(df["中行汇买价"], errors="coerce") / 100,
+    }).dropna(subset=["close"])
+    _write_ref(out, "USDCNY", "美元兑人民币汇率(中行)", FX_FILE)
 
 
 def fetch_hkfx():
-    """下载 HKDCNY，用于把香港安硕港币净值换算为人民币口径。"""
+    """下载 HKDCNY，通过 akshare 中行牌价获取。"""
+    import akshare as ak
+
     ensure_data_dir()
-    df = _yahoo("HKDCNY=X")
-    df["净值日期"] = pd.to_datetime(df["ts"], unit="s", utc=True).dt.strftime("%Y-%m-%d")
-    _write_ref(df, "HKDCNY", "港币兑人民币汇率", HKFX_FILE)
+    df = ak.currency_boc_sina(symbol='港币', start_date='20100101', end_date=pd.Timestamp.today().strftime('%Y%m%d'))
+    # 中行汇买价单位：100港币 = X人民币，需除100转换为 1港币 = X人民币
+    out = pd.DataFrame({
+        "净值日期": pd.to_datetime(df["日期"]).dt.strftime("%Y-%m-%d"),
+        "close": pd.to_numeric(df["中行汇买价"], errors="coerce") / 100,
+    }).dropna(subset=["close"])
+    _write_ref(out, "HKDCNY", "港币兑人民币汇率(中行)", HKFX_FILE)
 
 
 def fetch_ishares(company: str, code_disp: str, etfid: str):
