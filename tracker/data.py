@@ -70,7 +70,12 @@ def load_hkfx():
 
 
 def load_market_data(path: str):
-    """加载市场交易数据（场内收盘价、均价、最高、最低、净值等），用于溢价分析。"""
+    """加载市场交易数据（场内收盘价、均价、最高、最低、净值等），用于溢价分析。
+
+    溢价口径：A股白天交易时只能看到前一个交易日的净值（美股前晚收盘后才公布），
+    因此 prev_nav 列为前一个交易日的净值，用于溢价计算。
+    nav 列保留当天净值，用于净值涨幅等非溢价计算。
+    """
     df = pd.read_excel(path)
     df["date"] = pd.to_datetime(df["净值日期"])
     df["nav"] = pd.to_numeric(df["单位净值(元)"], errors="coerce")
@@ -78,4 +83,8 @@ def load_market_data(path: str):
     df["vwap"] = pd.to_numeric(df["场内均价(元)"], errors="coerce")
     df["high"] = pd.to_numeric(df.get("场内最高(元)"), errors="coerce") if "场内最高(元)" in df.columns else float("nan")
     df["low"] = pd.to_numeric(df.get("场内最低(元)"), errors="coerce") if "场内最低(元)" in df.columns else float("nan")
-    return df[["date", "nav", "close", "vwap", "high", "low"]].dropna(subset=["date", "nav"]).sort_values("date").reset_index(drop=True)
+    df = df[["date", "nav", "close", "vwap", "high", "low"]].dropna(subset=["date", "nav"]).sort_values("date").reset_index(drop=True)
+    # 溢价基准使用前一交易日净值：当天场内价格 / 前一天净值 - 1
+    df["prev_nav"] = df["nav"].shift(1)
+    df = df.dropna(subset=["prev_nav"]).reset_index(drop=True)
+    return df

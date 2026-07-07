@@ -65,9 +65,9 @@ def tracking_error(fund_monthly, index_monthly) -> float:
 
 
 def dca_avg_premium(market_df, n_days: int = None, price_col: str = "close") -> float:
-    """计算定投平均溢价：近N天每天买入相同股数，实际成本相对净值的溢价。
+    """计算定投平均溢价：近N天每天买入相同股数，实际成本相对前一日净值的溢价。
 
-    公式：sum(price) / sum(nav) - 1
+    公式：sum(price) / sum(prev_nav) - 1
     n_days=None 时取全部历史数据。
     price_col: 使用的价格列，'close' 或 'vwap'
     """
@@ -79,7 +79,7 @@ def dca_avg_premium(market_df, n_days: int = None, price_col: str = "close") -> 
         return float("nan")
 
     total_cost = df[price_col].sum()
-    total_nav = df["nav"].sum()
+    total_nav = df["prev_nav"].sum()
 
     if total_nav == 0:
         return float("nan")
@@ -90,12 +90,13 @@ def dca_avg_premium(market_df, n_days: int = None, price_col: str = "close") -> 
 def dca_premium_std(market_df, n_days: int = None, price_col: str = "close") -> float:
     """计算定投期内每日溢价率的标准差，衡量溢价波动性。
 
+    溢价率 = price / prev_nav - 1
     price_col: 使用的价格列，'close' 或 'vwap'
     """
     if market_df is None or len(market_df) == 0:
         return float("nan")
     df = market_df.sort_values("date").tail(n_days) if n_days else market_df
-    valid = df[df["nav"] > 0]
+    valid = df[df["prev_nav"] > 0]
     if len(valid) == 0:
         return float("nan")
-    return ((valid[price_col] / valid["nav"] - 1) * 100).std()
+    return ((valid[price_col] / valid["prev_nav"] - 1) * 100).std()

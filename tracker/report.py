@@ -376,14 +376,14 @@ def _append_premium_section(lines, periods=None, end_date=None):
                 nav_dca_ret = float("nan")
 
             # 计算加仓/减仓阈值：基于每天 high/low 计算日内溢价区间
-            # 每天：low_prem = low/nav - 1, high_prem = high/nav - 1
+            # 每天：low_prem = low/prev_nav - 1, high_prem = high/prev_nav - 1
             # 每天25% = low_prem + (high_prem - low_prem) × 25%
             # 每天75% = low_prem + (high_prem - low_prem) × 75%
             # 最终阈值 = 窗口内所有天的25%/75%的均值
-            hl_valid = window[(window["nav"] > 0) & window["high"].notna() & window["low"].notna()]
+            hl_valid = window[(window["prev_nav"] > 0) & window["high"].notna() & window["low"].notna()]
             if len(hl_valid) > 0:
-                daily_low_prem = (hl_valid["low"] / hl_valid["nav"] - 1) * 100
-                daily_high_prem = (hl_valid["high"] / hl_valid["nav"] - 1) * 100
+                daily_low_prem = (hl_valid["low"] / hl_valid["prev_nav"] - 1) * 100
+                daily_high_prem = (hl_valid["high"] / hl_valid["prev_nav"] - 1) * 100
                 daily_range = daily_high_prem - daily_low_prem
                 daily_q25 = daily_low_prem + daily_range * 0.25
                 daily_q75 = daily_low_prem + daily_range * 0.75
@@ -474,8 +474,8 @@ def _append_premium_section(lines, periods=None, end_date=None):
         ">",
         "> | 列名 | 计算方式 |",
         "> |---|---|",
-        "> | 收盘溢价(±σ) | Σ(每天收盘价) / Σ(每天净值) - 1，括号内σ为每日溢价率的标准差 |",
-        "> | 均价溢价(±σ) | Σ(每天VWAP) / Σ(每天净值) - 1，按成交均价定投的累计溢价成本 |",
+        "> | 收盘溢价(±σ) | Σ(每天收盘价) / Σ(每天前一日净值) - 1，括号内σ为每日溢价率的标准差 |",
+        "> | 均价溢价(±σ) | Σ(每天VWAP) / Σ(每天前一日净值) - 1，按成交均价定投的累计溢价成本 |",
         "> | 加仓阈值 | 每天：最低价/净值-1 + (最高价/净值-1 - 最低价/净值-1)×25%，取窗口内均值。溢价低于此值时加大定投 |",
         "> | 减仓阈值 | 同理取日内75%分位的均值。溢价高于此值时减少定投 |",
         "> | 净值涨幅 | 末日净值 / 首日净值 - 1 |",
@@ -629,8 +629,8 @@ def _append_method(lines, idx_label, idx_note):
         "| | 补充的累计净值 = 前一天累计净值 × (当天IOPV / 前一天单位净值) |",
         "| | 如果净值已经更新到最新，或者查不到IOPV（非交易时间），就不补充 |",
         "| **跟踪误差** | std(基金月收益 − 指数月收益) × √12（月度口径，消除汇率时点噪音） |",
-        "| **日溢价率** | (场内价格 / 单位净值 − 1) × 100% |",
-        "| **定投累计溢价** | Σ(每天价格) / Σ(每天净值) − 1（模拟每日买入相同股数） |",
+        "| **日溢价率** | (当天场内价格 / 前一交易日净值 − 1) × 100%，反映盘中实际面对的溢价 |",
+        "| **定投累计溢价** | Σ(每天价格) / Σ(每天前一日净值) − 1（模拟每日买入相同股数） |",
         "| **溢价σ** | 窗口内每日溢价率的标准差 |",
         "| **均价 VWAP** | 成交额 / 成交量，反映全天加权平均成交价格 |",
         "| **加仓阈值** | 每天：低溢价 + (高溢价 − 低溢价) × 25%，取窗口均值。溢价 < 此值 → 加大定投 |",

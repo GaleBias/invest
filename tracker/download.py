@@ -169,6 +169,7 @@ def fetch_fund(company: str, code: str, iopv_data: dict = None):
             print(f"    [IOPV补充] {code} {iopv_date}: 单位净值={iopv_val}, 累计净值≈{est_acc}")
 
     rows = []
+    prev_nav = None
     for _, row in merged.iterrows():
         date = row['date']
         nav = row['nav']
@@ -176,7 +177,8 @@ def fetch_fund(company: str, code: str, iopv_data: dict = None):
         acc = row['acc']
         mkt = market_data.get(date, {})
         close = mkt.get("close", "")
-        premium = round((close - nav) / nav * 100, 2) if close != "" and nav else ""
+        # 溢价基于前一交易日净值：盘中交易者只能看到前一天的净值
+        premium = round((close - prev_nav) / prev_nav * 100, 2) if close != "" and prev_nav else ""
         rows.append({
             "基金代码": code,
             "基金名称": company,
@@ -190,6 +192,7 @@ def fetch_fund(company: str, code: str, iopv_data: dict = None):
             "场内最低(元)": mkt.get("low", ""),
             "溢价率(%)": premium,
         })
+        prev_nav = nav
 
     df = pd.DataFrame(rows, columns=DATA_COLUMNS).sort_values("净值日期", ascending=False).reset_index(drop=True)
     out = fund_file(company, code)
@@ -298,11 +301,15 @@ def fetch_ishares(company: str, code_disp: str, etfid: str):
         print(f"  [港股场内数据获取失败] {code_disp}: {exc}")
 
     # ---- 3. 合并 NAV + 场内价格 ----
+    # 按日期排序，溢价基于前一交易日净值
+    sorted_dates = sorted(nav_dict.keys())
     rows = []
-    for date, nav in nav_dict.items():
+    prev_nav = None
+    for date in sorted_dates:
+        nav = nav_dict[date]
         mkt = market_dict.get(date, {})
         close = mkt.get("close", "")
-        premium = round((close - nav) / nav * 100, 2) if close != "" and nav else ""
+        premium = round((close - prev_nav) / prev_nav * 100, 2) if close != "" and prev_nav else ""
         rows.append({
             "基金代码": code_disp,
             "基金名称": f"iShares纳斯达克100ETF({etfid},港币)",
@@ -316,6 +323,7 @@ def fetch_ishares(company: str, code_disp: str, etfid: str):
             "场内最低(元)": mkt.get("low", ""),
             "溢价率(%)": premium,
         })
+        prev_nav = nav
 
     df = pd.DataFrame(rows, columns=DATA_COLUMNS).sort_values("净值日期", ascending=False).reset_index(drop=True)
     out = fund_file(company, code_disp)
