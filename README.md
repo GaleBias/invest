@@ -9,14 +9,42 @@
 - 净值对比：年度收益、累计偏离、近期区间涨幅排名。
 - 溢价对比：定投溢价成本、加仓/减仓阈值、场内定投收益、综合评分。
 - 时间窗口完全动态，支持任意天数的 `--nav-periods` 和 `--premium-periods`。
-- IOPV 自动补充：当历史净值接口尚未更新最新交易日时，自动用 IOPV 估值补充。
+- IOPV 自动补充：当历史净值接口尚未更新最新交易日时，自动用 IOPV 估值补充；默认只定向查询配置基金，也可切换为 AkShare 全市场接口。
 
 ## 快速开始
 
+### 1. 安装依赖
+
 ```bash
 pip install -r requirements.txt
+```
 
-# 默认：下载数据 + 生成报告（NDX 价格指数）
+### 2. 设置东方财富 Cookie（推荐）
+
+东方财富实时行情接口目前较容易出现验证、限流、断连、403 或 502。建议先在浏览器打开 `https://quote.eastmoney.com/`，手动完成可能出现的验证，然后在开发者工具的 **Network → Request Headers** 中复制完整的 `Cookie` 值。
+
+在当前 macOS zsh 终端中临时设置，避免 Cookie 出现在命令历史中：
+
+```bash
+read -s "EASTMONEY_COOKIE?粘贴 Cookie: "
+export EASTMONEY_COOKIE
+echo
+```
+
+确认变量已经设置，但不要打印 Cookie 内容：
+
+```bash
+python3 -c 'import os; print("已设置" if os.getenv("EASTMONEY_COOKIE") else "未设置")'
+```
+
+如果默认定向接口在当前网络下无需 Cookie 即可使用，也可以跳过这一步。Cookie 不要写入源码、配置文件或提交到版本库；它可能过期，也不保证能解除 IP 或网络层限制。
+
+### 3. 运行工具
+
+```bash
+# 默认：下载数据 + 生成报告
+# 指数口径：NDX 价格指数；净值对比窗口：近 30 个自然日；溢价对比窗口：近 30 个自然日
+# IOPV 使用 direct，只定向查询 config.py 中配置的基金
 python nasdaq_etf_tool.py
 
 # 使用全收益指数 XNDX
@@ -30,6 +58,18 @@ python nasdaq_etf_tool.py --skip-download --total-return --premium-periods 30,60
 
 # 只下载数据，不生成报告
 python nasdaq_etf_tool.py --only-download
+
+# 显式选择默认的定向 IOPV 接口（单次只查询配置基金）
+python nasdaq_etf_tool.py --only-download --iopv-source direct
+
+# 改用 AkShare fund_etf_spot_em 全市场接口
+python nasdaq_etf_tool.py --only-download --iopv-source akshare
+```
+
+全部运行结束后清除当前终端中的 Cookie：
+
+```bash
+unset EASTMONEY_COOKIE
 ```
 
 ## 命令行参数
@@ -40,6 +80,8 @@ python nasdaq_etf_tool.py --only-download
 | `--no-total-return` | 使用价格指数 NDX（默认，不含股息） |
 | `--skip-download` | 跳过下载，用已有 xlsx 生成报告 |
 | `--only-download` | 只下载数据，不生成报告 |
+| `--iopv-source direct` | 通过东方财富 `ulist.np/get` 一次只查询 `FUNDS` 中配置的 ETF（默认） |
+| `--iopv-source akshare` | 调用 AkShare `fund_etf_spot_em` 分页获取全市场 ETF |
 | `--nav-periods` | 净值对比窗口（自然日），逗号分隔，如 `30,60,90`（默认 `30`） |
 | `--premium-periods` | 溢价对比窗口（自然日），逗号分隔，如 `30,60,90`（默认 `30`） |
 
@@ -95,7 +137,8 @@ python nasdaq_etf_tool.py --only-download
 |---|---|---|---|
 | A股ETF单位/累计净值 | 东方财富（天天基金） | akshare `fund_open_fund_info_em` | 含分红再投资 |
 | A股ETF场内价格 | 新浪财经 | akshare `fund_etf_hist_sina` | 含收盘价、最高价、最低价、成交额、成交量 |
-| A股ETF IOPV估值 | 东方财富 | akshare `fund_etf_spot_em` | 用于补充净值接口尚未更新的最新交易日 |
+| A股ETF IOPV估值（默认） | 东方财富 | HTTP `ulist.np/get` | 单次只查询 `tracker.config.FUNDS` 中配置的 ETF，支持可选 `EASTMONEY_COOKIE` 和备用节点 |
+| A股ETF IOPV估值（可选） | 东方财富（AkShare） | `fund_etf_spot_em` | 使用 `--iopv-source akshare` 切换，分页获取全市场 ETF |
 | 安硕2834净值 | MoneyDJ | HTTP 直接请求 | 港币单位净值 |
 | 安硕2834场内价格 | 新浪财经 | akshare `stock_hk_daily` | 港股日线行情，含成交额（精确VWAP） |
 | 纳指100指数 NDX | 新浪财经 | akshare `index_us_stock_sina` | 默认使用，价格指数（不含股息） |
@@ -151,7 +194,7 @@ REF_FUNDS = [("安硕", "02834", "2834.HK")]
 - **月度跟踪误差**：使用月度收益差计算，消除日度汇率快照时点差异带来的噪音。
 - **溢价阈值**：基于每天的最高价/最低价计算日内溢价区间，取25%/75%分位的窗口均值，为定投提供加仓/减仓参考。
 - **综合评分**：收盘定投收益50% + 收盘溢价30% + 溢价σ20%，三个正交维度避免重复计算。
-- **IOPV 补充**：场内交易数据（新浪）通常比净值接口更新更快；当场内有新交易日而净值缺失时，用 `fund_etf_spot_em` 获取的 IOPV 作为当日净值估算值，确保报告反映最新状态。非交易时间获取不到 IOPV 时静默跳过，不影响正常流程。
+- **IOPV 补充**：场内交易数据（新浪）通常比净值接口更新更快；当场内有新交易日而净值缺失时，用 IOPV 作为当日净值估算值，确保报告反映最新状态。默认 `--iopv-source direct` 通过 `ulist.np/get` 一次只查询 `FUNDS` 中配置的 ETF；可用 `--iopv-source akshare` 切换为 `fund_etf_spot_em` 全市场分页接口。两种来源都转换成统一结构，后续补充和报告计算逻辑相同。
 - **安硕溢价分析**：NAV 来自 MoneyDJ，场内价格来自新浪港股接口，按日期合并后可计算溢价。港股与 A 股交易日历不同，缺失日自然留空，不影响对比。
 
 ## 下载失败处理
@@ -159,7 +202,7 @@ REF_FUNDS = [("安硕", "02834", "2834.HK")]
 - A 股基金是主对比对象，任一下载失败即中止，避免混用旧数据。
 - 香港安硕是参考项，下载失败只打印警告，不影响主报告生成。
 - Nasdaq XNDX 指数下载自动重试最多 5 次，每次间隔递增（仅 `--total-return` 时需要）。
-- IOPV 获取失败静默跳过，不报错。
+- IOPV 获取失败时打印对应数据源或节点的诊断信息并跳过补充，不影响正常流程。
 
 ## 依赖
 
