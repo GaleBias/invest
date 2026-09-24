@@ -20,6 +20,7 @@ from tracker.config import (
     HKFX_FILE,
     INDEX_FILE_NDX,
     INDEX_FILE_XNDX,
+    QQQ_FILE,
     REF_FUNDS,
     USER_AGENT,
     ensure_data_dir,
@@ -79,31 +80,136 @@ def _fetch_etf_market_data(code: str) -> dict:
         return {}
 
 
-def _fetch_iopv_today() -> dict:
-    """获取 ETF 最新 IOPV 估值数据，返回 {code: {iopv, close, high, low}}。
+def _numeric_or_empty(value):
+    """把行情字段转为浮点数，无效值返回空字符串。"""
+    value = pd.to_numeric(value, errors="coerce")
+    return float(value) if pd.notna(value) else ""
 
-    fund_etf_spot_em 返回的 IOPV 是前一个交易日的净值（尚未同步到历史净值接口）。
-    具体对应哪个交易日不在此处推算，由 fetch_fund 结合场内交易数据确定。
-    """
+
+def _eastmoney_secid(code: str) -> str:
+    """把配置中的 A 股 ETF/LOF 代码转换为东方财富 secid。"""
+    code = str(code).strip()
+    if len(code) != 6 or not code.isdigit():
+        raise ValueError(f"无效的 A 股证券代码: {code!r}")
+    if code.startswith(("5", "6")):
+        return f"1.{code}"
+    if code.startswith(("15", "16")):
+        return f"0.{code}"
+    raise ValueError(f"无法判断证券所属市场: {code}")
+
+
+def _fetch_iopv_direct() -> dict:
+    """通过 ulist.np/get 一次定向查询 FUNDS 中配置的 ETF。"""
+    import os
+    import time
+
+    import requests
+
+    configured_codes = [code for _company, code, _display in FUNDS]
+    endpoints = [
+        "https://push2.eastmoney.com/api/qt/ulist.np/get",
+        "https://82.push2.eastmoney.com/api/qt/ulist.np/get",
+        "https://88.push2.eastmoney.com/api/qt/ulist.np/get",
+        "https://push2delay.eastmoney.com/api/qt/ulist.np/get",
+    ]
+    params = {
+        "fltt": "2",
+        "invt": "2",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "secids": ",".join(_eastmoney_secid(code) for code in configured_codes),
+        "fields": "f12,f14,f2,f15,f16,f441,f124",
+    }
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/140.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": "https://quote.eastmoney.com/",
+        "Connection": "close",
+    }
+    cookie = os.getenv("EASTMONEY_COOKIE", "").strip()
+    if cookie:
+        headers["Cookie"] = cookie
+
+    configured_set = set(configured_codes)
+    with requests.Session() as session:
+        session.headers.update(headers)
+        for index, endpoint in enumerate(endpoints):
+            if index:
+                time.sleep(2)
+            try:
+                response = session.get(endpoint, params=params, timeout=20)
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("rc") != 0:
+                    raise ValueError(f"rc={payload.get('rc')}")
+                rows = (payload.get("data") or {}).get("diff") or []
+                if not rows:
+                    raise ValueError("接口未返回 ETF 行情")
+
+                result = {}
+                for row in rows:
+                    code = str(row.get("f12", "")).strip().zfill(6)
+                    if code not in configured_set:
+                        continue
+                    iopv = pd.to_numeric(row.get("f441"), errors="coerce")
+                    if pd.isna(iopv) or iopv <= 0:
+                        continue
+                    result[code] = {
+                        "iopv": float(iopv),
+                        "close": _numeric_or_empty(row.get("f2")),
+                        "high": _numeric_or_empty(row.get("f15")),
+                        "low": _numeric_or_empty(row.get("f16")),
+                    }
+
+                missing = sorted(configured_set - set(result))
+                print(
+                    f"  [定向IOPV] {endpoint}，"
+                    f"命中 {len(result)}/{len(configured_codes)} 只配置基金"
+                )
+                if missing:
+                    print(f"  [IOPV未命中] {', '.join(missing)}")
+                return result
+            except (requests.RequestException, ValueError, TypeError) as exc:
+                print(f"  [定向IOPV节点失败] {endpoint}: {type(exc).__name__}: {exc}")
+
+    return {}
+
+
+def _fetch_iopv_akshare() -> dict:
+    """使用 AkShare fund_etf_spot_em 获取全市场 ETF IOPV。"""
     import akshare as ak
 
     try:
         df = ak.fund_etf_spot_em()
         result = {}
         for _, row in df.iterrows():
-            code = str(row["代码"])
-            iopv = row.get("IOPV实时估值")
-            if pd.isna(iopv) or iopv is None or iopv == 0:
+            code = str(row["代码"]).strip().zfill(6)
+            iopv = pd.to_numeric(row.get("IOPV实时估值"), errors="coerce")
+            if pd.isna(iopv) or iopv <= 0:
                 continue
             result[code] = {
                 "iopv": float(iopv),
-                "close": float(row["最新价"]) if pd.notna(row.get("最新价")) else "",
-                "high": float(row["最高价"]) if pd.notna(row.get("最高价")) else "",
-                "low": float(row["最低价"]) if pd.notna(row.get("最低价")) else "",
+                "close": _numeric_or_empty(row.get("最新价")),
+                "high": _numeric_or_empty(row.get("最高价")),
+                "low": _numeric_or_empty(row.get("最低价")),
             }
         return result
-    except Exception:
+    except Exception as exc:
+        print(f"  [AkShare IOPV失败] {type(exc).__name__}: {exc}")
         return {}
+
+
+def _fetch_iopv_today(source: str = "direct") -> dict:
+    """按指定数据源获取 IOPV，默认只定向查询配置基金。"""
+    if source == "direct":
+        return _fetch_iopv_direct()
+    if source == "akshare":
+        return _fetch_iopv_akshare()
+    raise ValueError(f"不支持的 IOPV 数据源: {source}")
 
 
 def fetch_fund(company: str, code: str, iopv_data: dict = None):
@@ -234,6 +340,43 @@ def fetch_index(use_total_return: bool = DEFAULT_USE_TOTAL_RETURN):
             "close": mdf["close"].values,
         })
         _write_ref(df, "NDX", "纳斯达克100指数(价格指数,美元)", INDEX_FILE_NDX)
+
+
+def fetch_qqq():
+    """下载 QQQ（Invesco 纳指100 ETF，美元）日线，写成项目统一 xlsx 格式。
+
+    数据源：新浪财经（akshare stock_us_daily），与 NDX 指数同源。
+    QQQ 是实际可交易的 ETF，NDX 是它跟踪的指数，两者放在一起便于对比跟踪质量。
+    """
+    import akshare as ak
+
+    ensure_data_dir()
+    df = ak.stock_us_daily(symbol="QQQ", adjust="").copy()
+    df["净值日期"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    df = df.drop_duplicates("净值日期").sort_values("净值日期").reset_index(drop=True)
+    df["chg"] = df["close"].pct_change() * 100
+
+    rows = []
+    for _, r in df.iterrows():
+        rows.append({
+            "基金代码": "QQQ",
+            "基金名称": "Invesco纳斯达克100ETF(QQQ,美元)",
+            "净值日期": r["净值日期"],
+            "单位净值(元)": round(float(r["close"]), 4),
+            "日涨跌": "" if pd.isna(r["chg"]) else f"{r['chg']:.2f}%",
+            "累计净值(元)": round(float(r["close"]), 4),
+            "场内收盘(元)": round(float(r["close"]), 4),
+            "场内均价(元)": "",
+            "场内最高(元)": round(float(r["high"]), 4),
+            "场内最低(元)": round(float(r["low"]), 4),
+            "溢价率(%)": "",
+        })
+
+    out_df = pd.DataFrame(rows, columns=DATA_COLUMNS).sort_values(
+        "净值日期", ascending=False
+    ).reset_index(drop=True)
+    out_df.to_excel(QQQ_FILE, index=False)
+    print(f"  [QQQ] {QQQ_FILE:<22} {len(out_df):>5}行  {out_df['净值日期'].min()} ~ {out_df['净值日期'].max()}")
 
 
 def fetch_fx():
@@ -367,10 +510,11 @@ def _write_ref(df: pd.DataFrame, code: str, name: str, out: str):
     print(f"  [参考] {out:<22} {len(out_df):>5}行  {out_df['净值日期'].min()} ~ {out_df['净值日期'].max()}")
 
 
-def fetch_all(use_total_return: bool):
+def fetch_all(use_total_return: bool, iopv_source: str = "direct"):
     """执行完整下载流程。"""
-    print("== 获取 ETF 实时 IOPV 估值 ==")
-    iopv_data = _fetch_iopv_today()
+    source_label = "配置基金定向接口" if iopv_source == "direct" else "AkShare 全市场接口"
+    print(f"== 获取 ETF 实时 IOPV 估值（{source_label}） ==")
+    iopv_data = _fetch_iopv_today(iopv_source)
     if iopv_data:
         print(f"  获取到 {len(iopv_data)} 只 ETF 的 IOPV 数据")
     else:
@@ -391,8 +535,12 @@ def fetch_all(use_total_return: bool):
             print(f"  - {item}")
         raise SystemExit(1)
 
-    print("== 下载 指数 / 汇率 ==")
+    print("== 下载 指数 / QQQ / 汇率 ==")
     fetch_index(use_total_return)
+    try:
+        fetch_qqq()
+    except Exception as exc:
+        print(f"  [QQQ 下载失败] {exc}")
     fetch_fx()
     fetch_hkfx()
 

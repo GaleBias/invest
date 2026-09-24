@@ -7,7 +7,7 @@
 
 import pandas as pd
 
-from tracker.config import FUNDS, FX_FILE, HKFX_FILE, REF_FUNDS, fund_file, index_file
+from tracker.config import FUNDS, FX_FILE, HKFX_FILE, QQQ_FILE, REF_FUNDS, fund_file, index_file
 
 
 def load_series(path: str, value_col: str) -> pd.DataFrame:
@@ -67,6 +67,26 @@ def load_reference_funds():
 
 def load_hkfx():
     return load_series(HKFX_FILE, "单位净值(元)").rename(columns={"v": "v"})
+
+
+def load_qqq_usd():
+    """加载 QQQ 美元收盘价序列，返回 date/v（美元）。"""
+    return load_series(QQQ_FILE, "累计净值(元)")
+
+
+def load_qqq_fund():
+    """加载 QQQ 并折算为人民币口径，返回 (显示名, 代码, df[date, nav, v])。
+
+    nav = 美元收盘价，v = 人民币口径（美元价 × USDCNY），便于与人民币指数、
+    A股ETF、安硕放在同一张表里对比。汇率缺失日用前向填充。
+    """
+    fx = load_series(FX_FILE, "单位净值(元)").rename(columns={"v": "fx"})
+    q = load_qqq_usd().rename(columns={"v": "nav"})
+    m = pd.merge(q, fx, on="date", how="left").sort_values("date").reset_index(drop=True)
+    m["fx"] = m["fx"].ffill()
+    m = m.dropna(subset=["fx"])
+    m["v"] = m["nav"] * m["fx"]
+    return "QQQ(美元ETF)", "QQQ", m[["date", "nav", "v"]].reset_index(drop=True)
 
 
 def load_market_data(path: str):

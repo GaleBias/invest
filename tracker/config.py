@@ -27,6 +27,10 @@ FUNDS = [
     ("大成", "159513", "大成"),
     ("富国", "513870", "富国"),
     ("华夏", "513300", "华夏"),
+    # 注意：159509 跟踪的是“纳斯达克科技市值加权指数”（仅科技板块），
+    # 与上面跟踪纳斯达克100(NDX)的基金口径不同。净值/溢价可对比，
+    # 但对它的“跟踪误差(相对NDX)”不具参考意义。
+    ("景顺", "159509", "景顺科技"),
 ]
 
 # 香港上市的参考基金。
@@ -39,6 +43,8 @@ DEFAULT_USE_TOTAL_RETURN = False
 
 INDEX_FILE_XNDX = f"{DATA_DIR}/纳斯达克100指数-XNDX.xlsx"
 INDEX_FILE_NDX = f"{DATA_DIR}/纳斯达克100指数-NDX.xlsx"
+# QQQ：跟踪 NDX 的美元 ETF，作为“实际可交易的基金”与指数、A股ETF一起对比。
+QQQ_FILE = f"{DATA_DIR}/纳指100ETF-QQQ.xlsx"
 FX_FILE = f"{DATA_DIR}/美元兑人民币-USDCNY.xlsx"
 HKFX_FILE = f"{DATA_DIR}/港币兑人民币-HKDCNY.xlsx"
 

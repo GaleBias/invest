@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from tracker.config import FUNDS, REF_FUNDS, REPORT_FILE, fund_file
-from tracker.data import load_a_share_funds, load_hkfx, load_index_components, load_market_data, load_reference_funds, load_series
+from tracker.data import load_a_share_funds, load_hkfx, load_index_components, load_market_data, load_qqq_fund, load_qqq_usd, load_reference_funds, load_series
 from tracker.stats import calendar_year_returns, cumulative_return, dca_avg_premium, dca_premium_std, endpoint, monthly_returns, tracking_error
 
 _PREMIUM_PERIODS = [("近30天", 30)]
@@ -71,6 +71,27 @@ def build_report(use_total_return: bool, premium_periods=None, nav_periods=None)
     for company, code_disp, ef_df in ref_loaded:
         all_funds.append((company, code_disp, ef_df))
 
+    # QQQ：跟踪 NDX 的美元 ETF，折算人民币后与其他基金一起排名对比。
+    qqq_ov = None
+    try:
+        qqq_display, qqq_code, qqq_df = load_qqq_fund()
+        all_funds.append((qqq_display, qqq_code, qqq_df))
+        fund_ranges[qqq_display] = (qqq_code, qqq_df["date"].min(), qqq_df["date"].max())
+
+        qqq_usd = load_qqq_usd()
+        _qs_d, qqq_usd_s = endpoint(qqq_usd, "v", start_date)
+        _qe_d, qqq_usd_e = endpoint(qqq_usd, "v", end_date)
+        _rs_d, qqq_rmb_s = endpoint(qqq_df, "v", start_date)
+        _re_d, qqq_rmb_e = endpoint(qqq_df, "v", end_date)
+        qqq_ov = {
+            "usd_s": qqq_usd_s, "usd_e": qqq_usd_e,
+            "usd_cum": cumulative_return(qqq_usd, "v", start_date, end_date),
+            "rmb_s": qqq_rmb_s, "rmb_e": qqq_rmb_e,
+            "rmb_cum": cumulative_return(qqq_df, "v", start_date, end_date),
+        }
+    except Exception as exc:
+        print(f"  [QQQ 跳过] {exc}")
+
     rows = []
     for display, code, df in all_funds:
         fund_monthly = monthly_returns(df, "v", start_date, end_date)
@@ -105,6 +126,7 @@ def build_report(use_total_return: bool, premium_periods=None, nav_periods=None)
         fund_ranges, ndx_start_date, ndx_start_value, ndx_end_date, ndx_end_value, ndx_cum,
         idx_start_value, idx_end_value, index_cum, fx_start_date, fx_start_value, fx_end_date,
         fx_end_value, usd_cum, hk_start_date, hk_start_value, hk_end_date, hk_end_value, hk_cum,
+        qqq_ov,
     )
     period_info = _append_nav_section(lines, years, idx_label, index_year_returns, index_cum, rows, all_funds, idx, end_date, nav_periods)
     _append_premium_section(lines, premium_periods, end_date)
@@ -122,6 +144,7 @@ def _append_overview(
     fund_ranges, ndx_start_date, ndx_start_value, ndx_end_date, ndx_end_value, ndx_cum,
     idx_start_value, idx_end_value, index_cum, fx_start_date, fx_start_value, fx_end_date,
     fx_end_value, usd_cum, hk_start_date, hk_start_value, hk_end_date, hk_end_value, hk_cum,
+    qqq_ov=None,
 ):
     lines.append("## 一、数据概览\n")
     lines.append("**数据来源**\n")
@@ -150,7 +173,11 @@ def _append_overview(
     lines.append(f"| | 起点（{ndx_start_date.date()}） | 终点（{ndx_end_date.date()}） | 累计变动 |")
     lines.append("|---|---|---|---|")
     lines.append(f"| 纳指100(美元) | {ndx_start_value:.2f} | {ndx_end_value:.2f} | **{ndx_cum:+.2f}%** |")
+    if qqq_ov:
+        lines.append(f"| QQQ(美元) | {qqq_ov['usd_s']:.2f} | {qqq_ov['usd_e']:.2f} | **{qqq_ov['usd_cum']:+.2f}%** |")
     lines.append(f"| 纳指100(人民币) | {idx_start_value:.2f} | {idx_end_value:.2f} | **{index_cum:+.2f}%** |")
+    if qqq_ov:
+        lines.append(f"| QQQ(人民币) | {qqq_ov['rmb_s']:.2f} | {qqq_ov['rmb_e']:.2f} | **{qqq_ov['rmb_cum']:+.2f}%** |")
     lines.append(f"| USDCNY 汇率 | {fx_start_value:.4f} | {fx_end_value:.4f} | {usd_cum:+.2f}% |")
     lines.append(f"| HKDCNY 汇率 | {hk_start_value:.4f} | {hk_end_value:.4f} | {hk_cum:+.2f}% |")
     lines.append("")
@@ -192,6 +219,7 @@ def _append_nav_section(lines, years, idx_label, index_year_returns, index_cum, 
         "> - **涨幅**：该自然年内的收益率（人民币口径）。**偏离**：基金当年涨幅 − 指数当年涨幅（百分点，正=跑赢，负=跑输）。",
         "> - **累计涨幅 / 累计偏离**：统计区间内的累计收益、及相对指数的累计偏离（百分点）。",
         "> - **年化跟踪误差**：月度收益差的年化标准差，越小=跟得越紧越稳。",
+        "> - **QQQ 口径提示**：QQQ 为美元 ETF 收盘价（价格口径，分红不再投资），折算人民币后参与排名；A股ETF 用的是含分红再投资的累计净值。因此 QQQ 的累计偏离天然比 A股ETF 低约一个股息率（≈0.5%/年），并非跟踪更差——其年化跟踪误差 0.29% 恰恰说明它几乎完美贴合指数。",
         "",
     ]
 
@@ -261,8 +289,8 @@ def _append_nav_section(lines, years, idx_label, index_year_returns, index_cum, 
 
     lines += [
         "> 说明：",
-        "> - 起始净值中，安硕为港币单位净值，其余基金为人民币累计净值。",
-        "> - 涨幅统一为人民币口径。",
+        "> - **起始/终止净值为各基金原始币种**：QQQ 为美元收盘价，安硕为港币单位净值，A股ETF 为人民币累计净值。",
+        "> - **涨幅统一换算为人民币口径**：QQQ、安硕的涨幅已按当日汇率折算成人民币，因此其涨幅与“美元/港币净值首尾相除”得到的原币种涨幅会因汇率变动而略有差异（例如 QQQ 美元净值涨幅约为人民币涨幅剔除汇率变动后的结果）。",
         "> - 偏离 = 基金涨幅 − 指数涨幅（百分点）。",
         "",
         "---\n",

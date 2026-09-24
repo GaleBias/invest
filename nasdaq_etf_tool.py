@@ -21,6 +21,15 @@ def main():
     parser.add_argument("--skip-download", action="store_true", help="跳过下载，仅用已有 xlsx 生成报告")
     parser.add_argument("--only-download", action="store_true", help="仅下载数据，不生成报告")
     parser.add_argument(
+        "--iopv-source",
+        choices=("direct", "akshare"),
+        default="direct",
+        help=(
+            "IOPV 数据源：direct=只定向查询配置基金（默认，单次请求）；"
+            "akshare=调用 fund_etf_spot_em 获取全市场"
+        ),
+    )
+    parser.add_argument(
         "--total-return",
         dest="total_return",
         action="store_true",
@@ -55,7 +64,7 @@ def main():
     print(f"[指数口径] {index_name}")
 
     if not args.skip_download:
-        fetch_all(use_total_return)
+        fetch_all(use_total_return, iopv_source=args.iopv_source)
 
     if not args.only_download:
         print("\n== 生成对比报告 ==")
